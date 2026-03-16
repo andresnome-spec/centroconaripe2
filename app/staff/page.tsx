@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { prisma } from '@/lib/prisma';
 import { formatTime, getDateInputValue, startOfDay, endOfDay } from '@/lib/utils';
 import { EmptyState } from '@/components/EmptyState';
