@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { AppointmentStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 
 const schema = z.object({
@@ -14,7 +15,10 @@ const schema = z.object({
   notes: z.string().optional().or(z.literal(''))
 });
 
-const ACTIVE_APPOINTMENT_STATUSES = ['CONFIRMED', 'PENDING'];
+const ACTIVE_APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.CONFIRMED,
+  AppointmentStatus.PENDING
+];
 
 function overlapClause(startAt: Date, endAt: Date) {
   return {
