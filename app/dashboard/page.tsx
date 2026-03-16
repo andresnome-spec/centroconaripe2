@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { prisma } from '@/lib/prisma';
 import { formatCLP, formatDate, formatRole, startOfDay, endOfDay } from '@/lib/utils';
 import { StatCard } from '@/components/StatCard';
