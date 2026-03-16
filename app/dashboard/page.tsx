@@ -1,126 +1,134 @@
 export const dynamic = 'force-dynamic';
+
 import { prisma } from '@/lib/prisma';
-import { formatCLP, formatDate, formatRole, startOfDay, endOfDay } from '@/lib/utils';
 import { StatCard } from '@/components/StatCard';
+import { appointmentStatusLabel, formatCLP, formatDateTime, paymentStatusLabel, reservationStatusLabel, startOfMonth } from '@/lib/utils';
 
 export default async function DashboardPage() {
-  const now = new Date();
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
-
-  const [users, services, nextAppointments, rentals, todayAppointments] = await Promise.all([
-    prisma.user.findMany({ orderBy: { role: 'asc' } }),
-    prisma.service.findMany({ include: { professional: true }, orderBy: { name: 'asc' } }),
-    prisma.appointment.findMany({
-      include: { patient: true, professional: true, service: true, box: true },
-      where: { startAt: { gte: now }, status: { in: ['CONFIRMED', 'PENDING'] } },
-      orderBy: { startAt: 'asc' },
-      take: 10
-    }),
-    prisma.boxRental.findMany({ include: { user: true, box: true } }),
-    prisma.appointment.count({
-      where: { startAt: { gte: todayStart, lte: todayEnd }, status: { in: ['CONFIRMED', 'PENDING'] } }
-    })
+  const monthStart = startOfMonth(new Date());
+  const [pendingAppointments, pendingBoxReservations, monthRevenue, monthAppointmentsRevenue, monthBoxRevenue, professionals, boxes, services] = await Promise.all([
+    prisma.appointment.findMany({ where: { status: 'PENDING_PAYMENT' }, include: { patient: true, professional: true, service: true, box: true }, orderBy: { startAt: 'asc' } }),
+    prisma.boxReservation.findMany({ where: { status: { in: ['PENDING_PAYMENT', 'VOUCHER_RECEIVED'] } }, include: { box: true }, orderBy: { startAt: 'asc' } }),
+    prisma.revenueEntry.aggregate({ _sum: { amountCLP: true }, where: { createdAt: { gte: monthStart } } }),
+    prisma.revenueEntry.aggregate({ _sum: { amountCLP: true }, where: { createdAt: { gte: monthStart }, type: 'APPOINTMENT' } }),
+    prisma.revenueEntry.aggregate({ _sum: { amountCLP: true }, where: { createdAt: { gte: monthStart }, type: 'BOX_RENTAL' } }),
+    prisma.user.findMany({ where: { role: 'PROFESIONAL_CENTRO' }, orderBy: { name: 'asc' } }),
+    prisma.box.findMany({ orderBy: { name: 'asc' } }),
+    prisma.service.findMany({ include: { professional: true }, orderBy: { name: 'asc' } })
   ]);
-
-  const projectedRevenue = nextAppointments.reduce((sum, item) => sum + item.service.priceCLP, 0);
 
   return (
     <main className="page-stack">
       <section className="grid grid-4">
-        <StatCard title="Usuarios" value={users.length} subtitle="Admin, secretaría y profesionales" />
-        <StatCard title="Servicios" value={services.length} subtitle="Servicios agendables del centro" />
-        <StatCard title="Bloques de arriendo" value={rentals.length} subtitle="Arriendos fijos registrados" />
-        <StatCard title="Atenciones hoy" value={todayAppointments} subtitle="Confirmadas o pendientes" />
+        <StatCard title="Ingresos mes" value={formatCLP(monthRevenue._sum.amountCLP ?? 0)} subtitle="Total general" />
+        <StatCard title="Pacientes mes" value={formatCLP(monthAppointmentsRevenue._sum.amountCLP ?? 0)} subtitle="Agenda clínica" />
+        <StatCard title="Box mes" value={formatCLP(monthBoxRevenue._sum.amountCLP ?? 0)} subtitle="Arriendo de box" />
+        <StatCard title="Pendientes" value={pendingAppointments.length + pendingBoxReservations.length} subtitle="Pagos por validar" />
       </section>
 
       <section className="grid grid-2 align-start">
-        <section className="card">
-          <div className="section-head">
-            <div>
-              <h3>Usuarios y roles</h3>
-              <p className="muted">Aquí se ve quién puede acceder al listado del día.</p>
-            </div>
+        <article className="card">
+          <div className="section-head"><div><h3>Validar pagos · pacientes</h3><p className="muted">Al validar se confirma la hora, se registra caja y comisión.</p></div></div>
+          <div className="stack-sm">
+            {pendingAppointments.map((item) => (
+              <form key={item.id} className="card" action="/api/admin/validate-appointment-payment" method="post">
+                <input type="hidden" name="appointmentId" value={item.id} />
+                <div className="timeline-item">
+                  <div>
+                    <strong>{item.patient.fullName}</strong>
+                    <div className="muted">{item.professional.name} · {item.service.name}</div>
+                    <div className="muted">{formatDateTime(item.startAt)} · {item.box?.name ?? 'Online'}</div>
+                  </div>
+                  <div className="right-align">
+                    <div>{appointmentStatusLabel(item.status)} · {paymentStatusLabel(item.paymentStatus)}</div>
+                    <strong>{formatCLP(item.service.priceCLP)}</strong>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <div><label className="label">Monto pagado</label><input className="input" name="amountCLP" type="number" defaultValue={item.service.priceCLP} required /></div>
+                  <div><label className="label">Medio de pago</label><select className="select" name="paymentMethod"><option value="TRANSFERENCIA">Transferencia</option><option value="EFECTIVO">Efectivo</option><option value="WEBPAY">Webpay</option><option value="OTRO">Otro</option></select></div>
+                  <div style={{ gridColumn: '1 / -1' }}><button className="btn small" type="submit">Validar pago y confirmar hora</button></div>
+                </div>
+              </form>
+            ))}
           </div>
+        </article>
+
+        <article className="card">
+          <div className="section-head"><div><h3>Validar pagos · box</h3><p className="muted">Se registra el ingreso según el valor del box.</p></div></div>
+          <div className="stack-sm">
+            {pendingBoxReservations.map((item) => (
+              <form key={item.id} className="card" action="/api/admin/validate-box-payment" method="post">
+                <input type="hidden" name="reservationId" value={item.id} />
+                <div className="timeline-item">
+                  <div>
+                    <strong>{item.fullName}</strong>
+                    <div className="muted">{item.box.name} · {formatDateTime(item.startAt)}</div>
+                  </div>
+                  <div className="right-align">
+                    <div>{reservationStatusLabel(item.status)} · {paymentStatusLabel(item.paymentStatus)}</div>
+                    <strong>{formatCLP(item.priceCLP)}</strong>
+                  </div>
+                </div>
+                <div className="form-grid">
+                  <div><label className="label">Monto pagado</label><input className="input" name="amountCLP" type="number" defaultValue={item.priceCLP} required /></div>
+                  <div><label className="label">Medio de pago</label><select className="select" name="paymentMethod"><option value="TRANSFERENCIA">Transferencia</option><option value="EFECTIVO">Efectivo</option><option value="WEBPAY">Webpay</option><option value="OTRO">Otro</option></select></div>
+                  <div style={{ gridColumn: '1 / -1' }}><button className="btn small" type="submit">Validar arriendo</button></div>
+                </div>
+              </form>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="grid grid-2 align-start">
+        <article className="card">
+          <div className="section-head"><div><h3>Configurar profesionales</h3><p className="muted">Puedes cambiar la comisión por profesional.</p></div></div>
           <table className="table">
-            <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Listado día</th></tr></thead>
+            <thead><tr><th>Profesional</th><th>Comisión centro</th><th>Duración base</th><th>Box preferido</th></tr></thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.name}</td>
-                  <td>{u.email}</td>
-                  <td>{formatRole(u.role)}</td>
-                  <td>{u.canSeeDayList ? 'Sí' : 'No'}</td>
+              {professionals.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.name}</td>
+                  <td>{item.commissionPercent}%</td>
+                  <td>{item.defaultSessionMin} min</td>
+                  <td>{item.preferredBoxId ?? 'Sin preferencia'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </section>
-
-        <section className="card">
-          <div className="section-head">
-            <div>
-              <h3>Resumen comercial</h3>
-              <p className="muted">Proyección simple basada en las próximas reservas cargadas.</p>
-            </div>
-          </div>
+        </article>
+        <article className="card">
+          <div className="section-head"><div><h3>Configurar box</h3><p className="muted">Precio y URL de imagen editables por admin.</p></div></div>
           <div className="stack-sm">
-            <div className="timeline-item">
-              <span className="muted">Valor proyectado próximas reservas</span>
-              <strong>{formatCLP(projectedRevenue)}</strong>
-            </div>
-            <div className="timeline-item">
-              <span className="muted">Servicios publicados</span>
-              <strong>{services.filter((s) => s.isPublicBooking).length}</strong>
-            </div>
-            <div className="timeline-item">
-              <span className="muted">Profesionales visibles en agenda</span>
-              <strong>{new Set(services.map((s) => s.professionalId)).size}</strong>
-            </div>
-          </div>
-        </section>
-      </section>
-
-      <section className="card">
-        <div className="section-head">
-          <div>
-            <h3>Servicios del centro</h3>
-            <p className="muted">Servicios visibles para pacientes y sus condiciones.</p>
-          </div>
-        </div>
-        <table className="table">
-          <thead><tr><th>Profesional</th><th>Servicio</th><th>Duración</th><th>Modalidad</th><th>Valor</th></tr></thead>
-          <tbody>
-            {services.map((s) => (
-              <tr key={s.id}>
-                <td>{s.professional.name}</td>
-                <td>{s.name}</td>
-                <td>{s.durationMin} min</td>
-                <td>{s.isPresential ? 'Presencial' : ''}{s.isPresential && s.isOnlineEnabled ? ' / ' : ''}{s.isOnlineEnabled ? 'Online' : ''}</td>
-                <td>{formatCLP(s.priceCLP)}</td>
-              </tr>
+            {boxes.map((box) => (
+              <form key={box.id} className="card" action="/api/admin/update-box" method="post">
+                <input type="hidden" name="boxId" value={box.id} />
+                <div className="form-grid">
+                  <div><label className="label">Nombre</label><input className="input" name="name" defaultValue={box.name} required /></div>
+                  <div><label className="label">Valor</label><input className="input" name="priceCLP" type="number" defaultValue={box.priceCLP} required /></div>
+                  <div style={{ gridColumn: '1 / -1' }}><label className="label">URL imagen</label><input className="input" name="imageUrl" defaultValue={box.imageUrl ?? ''} placeholder="https://..." /></div>
+                  <div style={{ gridColumn: '1 / -1' }}><label className="label">Descripción</label><input className="input" name="description" defaultValue={box.description ?? ''} /></div>
+                  <div style={{ gridColumn: '1 / -1' }}><button className="btn small" type="submit">Guardar box</button></div>
+                </div>
+              </form>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </article>
       </section>
 
       <section className="card">
-        <div className="section-head">
-          <div>
-            <h3>Próximas reservas</h3>
-            <p className="muted">Lista operativa para seguimiento.</p>
-          </div>
-        </div>
+        <div className="section-head"><div><h3>Servicios del centro</h3><p className="muted">Duración y precio modificables por admin.</p></div></div>
         <table className="table">
-          <thead><tr><th>Fecha</th><th>Paciente</th><th>Profesional</th><th>Servicio</th><th>Box</th></tr></thead>
+          <thead><tr><th>Profesional</th><th>Servicio</th><th>Duración</th><th>Valor</th><th>Modalidades</th></tr></thead>
           <tbody>
-            {nextAppointments.map((a) => (
-              <tr key={a.id}>
-                <td>{formatDate(a.startAt)} {a.startAt.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}</td>
-                <td>{a.patient.fullName}</td>
-                <td>{a.professional.name}</td>
-                <td>{a.service.name}</td>
-                <td>{a.box?.name ?? 'Online'}</td>
+            {services.map((service) => (
+              <tr key={service.id}>
+                <td>{service.professional.name}</td>
+                <td>{service.name}</td>
+                <td>{service.durationMin} min</td>
+                <td>{formatCLP(service.priceCLP)}</td>
+                <td>{service.isPresential ? 'Presencial' : ''}{service.isPresential && service.isOnlineEnabled ? ' / ' : ''}{service.isOnlineEnabled ? 'Online' : ''}</td>
               </tr>
             ))}
           </tbody>

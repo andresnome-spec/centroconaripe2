@@ -6,31 +6,28 @@ export function formatCLP(value: number) {
   }).format(value);
 }
 
-export function formatTime(date: Date | string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(date));
+export function formatDate(date: Date) {
+  return new Intl.DateTimeFormat('es-CL', { dateStyle: 'medium' }).format(date);
 }
 
-export function formatDate(date: Date | string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(new Date(date));
+export function formatDateTime(date: Date) {
+  return new Intl.DateTimeFormat('es-CL', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+}
+
+export function formatTime(date: Date) {
+  return new Intl.DateTimeFormat('es-CL', { hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 export function startOfDay(date: Date) {
-  const value = new Date(date);
-  value.setHours(0, 0, 0, 0);
-  return value;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
 }
 
 export function endOfDay(date: Date) {
-  const value = new Date(date);
-  value.setHours(23, 59, 59, 999);
-  return value;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+export function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
 }
 
 export function getDateInputValue(date = new Date()) {
@@ -45,4 +42,34 @@ export function formatRole(role: string) {
     .split('_')
     .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
     .join(' ');
+}
+
+export function appointmentStatusLabel(status: string) {
+  return {
+    PENDING_PAYMENT: 'Pendiente pago',
+    CONFIRMED: 'Confirmada',
+    CANCELLED: 'Cancelada',
+    COMPLETED: 'Completada',
+    NO_SHOW: 'No asistió'
+  }[status] ?? status;
+}
+
+export function paymentStatusLabel(status: string) {
+  return {
+    PENDING: 'Pendiente',
+    VALIDATED: 'Pagado',
+    REJECTED: 'Rechazado',
+    REFUNDED: 'Devuelto'
+  }[status] ?? status;
+}
+
+export function reservationStatusLabel(status: string) {
+  return {
+    PENDING_PAYMENT: 'Pendiente pago',
+    VOUCHER_RECEIVED: 'Comprobante recibido',
+    CONFIRMED: 'Confirmada',
+    EXPIRED: 'Vencida',
+    CANCELLED: 'Cancelada',
+    COMPLETED: 'Completada'
+  }[status] ?? status;
 }

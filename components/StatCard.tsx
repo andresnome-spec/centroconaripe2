@@ -1,9 +1,9 @@
-export function StatCard({ title, value, subtitle }: { title: string; value: string | number; subtitle: string }) {
+export function StatCard({ title, value, subtitle }: { title: string; value: number | string; subtitle?: string }) {
   return (
-    <div className="card">
-      <div className="muted">{title}</div>
-      <div className="kpi">{value}</div>
-      <div className="muted">{subtitle}</div>
-    </div>
+    <article className="card stat-card">
+      <span className="muted">{title}</span>
+      <strong className="stat-card-value">{value}</strong>
+      {subtitle ? <span className="muted">{subtitle}</span> : null}
+    </article>
   );
 }

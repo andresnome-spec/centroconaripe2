@@ -1,15 +1,16 @@
 import Link from 'next/link';
 
-export default function BookingThanksPage() {
+export default function ThanksPage() {
   return (
-    <main className="card centered-card">
-      <span className="badge">Reserva creada</span>
-      <h2>La hora fue registrada correctamente</h2>
-      <p className="muted">En este MVP la reserva queda visible de inmediato en el listado del día y en el panel administrativo.</p>
-      <div className="stack-row center">
-        <Link href="/booking" className="btn">Crear otra reserva</Link>
-        <Link href="/staff" className="btn secondary">Ver listado del día</Link>
-      </div>
+    <main className="page-stack">
+      <section className="card">
+        <h2>Solicitud enviada</h2>
+        <p className="muted">Tu solicitud fue registrada correctamente y quedó pendiente de validación de pago. Revisa tu correo para ver el detalle enviado por Centro Coñaripe.</p>
+        <div className="stack-row">
+          <Link href="/booking" className="btn">Volver a reservar</Link>
+          <Link href="/" className="btn secondary">Ir al inicio</Link>
+        </div>
+      </section>
     </main>
   );
 }

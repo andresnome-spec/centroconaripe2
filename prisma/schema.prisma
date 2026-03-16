@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -20,33 +21,83 @@ enum BookingMode {
 }
 
 enum AppointmentStatus {
+  PENDING_PAYMENT
   CONFIRMED
-  PENDING
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum BoxReservationStatus {
+  PENDING_PAYMENT
+  VOUCHER_RECEIVED
+  CONFIRMED
+  EXPIRED
   CANCELLED
   COMPLETED
 }
 
+enum PaymentStatus {
+  PENDING
+  VALIDATED
+  REJECTED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  TRANSFERENCIA
+  EFECTIVO
+  WEBPAY
+  OTRO
+}
+
+enum RevenueType {
+  APPOINTMENT
+  BOX_RENTAL
+}
+
+enum PayoutStatus {
+  OPEN
+  CALCULATED
+  REVIEWED
+  PAID_OUT
+  CLOSED
+}
+
 model User {
-  id             String         @id @default(cuid())
-  name           String
-  email          String         @unique
-  role           Role
-  phone          String?
-  canSeeDayList  Boolean        @default(false)
-  services       Service[]
-  boxRentals     BoxRental[]
-  appointments   Appointment[]  @relation("ProfessionalAppointments")
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                    String               @id @default(cuid())
+  name                  String
+  email                 String               @unique
+  role                  Role
+  phone                 String?
+  canSeeDayList         Boolean              @default(false)
+  visibleToPatients     Boolean              @default(false)
+  commissionPercent     Float                @default(35)
+  defaultSessionMin     Int                  @default(50)
+  preferredBoxId        String?
+  services              Service[]
+  boxRentals            BoxRental[]
+  appointments          Appointment[]        @relation("ProfessionalAppointments")
+  blocks                ProfessionalBlock[]
+  preferredBox          Box?                 @relation("PreferredProfessionalBox", fields: [preferredBoxId], references: [id])
+  payouts               Payout[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 }
 
 model Box {
-  id            String         @id @default(cuid())
-  name          String
-  description   String?
-  isActive      Boolean        @default(true)
-  rentals       BoxRental[]
-  appointments  Appointment[]
+  id                    String               @id @default(cuid())
+  name                  String               @unique
+  description           String?
+  priceCLP              Int
+  imageUrl              String?
+  isActive              Boolean              @default(true)
+  rentals               BoxRental[]
+  reservations          BoxReservation[]
+  appointments          Appointment[]
+  preferredProfessionals User[]              @relation("PreferredProfessionalBox")
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 }
 
 model BoxRental {
@@ -64,17 +115,44 @@ model BoxRental {
   @@index([boxId, weekday])
 }
 
+model BoxReservation {
+  id              String                @id @default(cuid())
+  boxId           String
+  fullName        String
+  email           String?
+  phone           String
+  startAt         DateTime
+  endAt           DateTime
+  status          BoxReservationStatus  @default(PENDING_PAYMENT)
+  paymentStatus   PaymentStatus         @default(PENDING)
+  priceCLP        Int
+  notes           String?
+  transferNote    String?
+  proofDueAt      DateTime?
+  validatedAt     DateTime?
+  validatedById   String?
+  box             Box                   @relation(fields: [boxId], references: [id])
+  payment         Payment?
+  revenue         RevenueEntry?
+  createdAt       DateTime              @default(now())
+
+  @@index([boxId, startAt])
+  @@index([status, paymentStatus])
+}
+
 model Service {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   name            String
   durationMin     Int
   priceCLP        Int
-  isOnlineEnabled Boolean  @default(true)
-  isPresential    Boolean  @default(true)
-  isPublicBooking Boolean  @default(true)
+  isOnlineEnabled Boolean       @default(true)
+  isPresential    Boolean       @default(true)
+  isPublicBooking Boolean       @default(true)
   professionalId  String
-  professional    User     @relation(fields: [professionalId], references: [id])
+  professional    User          @relation(fields: [professionalId], references: [id])
   appointments    Appointment[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 }
 
 model Patient {
@@ -90,23 +168,97 @@ model Patient {
 }
 
 model Appointment {
-  id              String             @id @default(cuid())
-  patientId       String
-  professionalId  String
-  serviceId       String
-  boxId           String?
-  bookingMode     BookingMode
-  startAt         DateTime
-  endAt           DateTime
-  status          AppointmentStatus  @default(CONFIRMED)
-  notes           String?
-  patient         Patient            @relation(fields: [patientId], references: [id])
-  professional    User               @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
-  service         Service            @relation(fields: [serviceId], references: [id])
-  box             Box?               @relation(fields: [boxId], references: [id])
-  createdAt       DateTime           @default(now())
+  id                  String             @id @default(cuid())
+  patientId           String
+  professionalId      String
+  serviceId           String
+  boxId               String?
+  bookingMode         BookingMode
+  startAt             DateTime
+  endAt               DateTime
+  status              AppointmentStatus  @default(PENDING_PAYMENT)
+  paymentStatus       PaymentStatus      @default(PENDING)
+  paymentMethod       PaymentMethod?
+  chargedAmountCLP    Int?
+  centerShareCLP      Int?
+  professionalShareCLP Int?
+  notes               String?
+  patient             Patient            @relation(fields: [patientId], references: [id])
+  professional        User               @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
+  service             Service            @relation(fields: [serviceId], references: [id])
+  box                 Box?               @relation(fields: [boxId], references: [id])
+  payment             Payment?
+  revenue             RevenueEntry?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   @@index([professionalId, startAt])
   @@index([boxId, startAt])
   @@index([startAt, status])
+}
+
+model ProfessionalBlock {
+  id              String   @id @default(cuid())
+  professionalId  String
+  startAt         DateTime
+  endAt           DateTime
+  reason          String?
+  professional    User     @relation(fields: [professionalId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([professionalId, startAt])
+}
+
+model Payment {
+  id                 String         @id @default(cuid())
+  status             PaymentStatus  @default(PENDING)
+  method             PaymentMethod?
+  amountCLP          Int
+  validatedAt        DateTime?
+  validatedByName    String?
+  appointmentId      String?        @unique
+  boxReservationId   String?        @unique
+  appointment        Appointment?   @relation(fields: [appointmentId], references: [id])
+  boxReservation     BoxReservation? @relation(fields: [boxReservationId], references: [id])
+  createdAt          DateTime       @default(now())
+}
+
+model RevenueEntry {
+  id                 String         @id @default(cuid())
+  type               RevenueType
+  amountCLP          Int
+  centerShareCLP     Int?
+  professionalShareCLP Int?
+  professionalId     String?
+  appointmentId      String?        @unique
+  boxReservationId   String?        @unique
+  appointment        Appointment?   @relation(fields: [appointmentId], references: [id])
+  boxReservation     BoxReservation? @relation(fields: [boxReservationId], references: [id])
+  createdAt          DateTime       @default(now())
+}
+
+model Payout {
+  id                 String        @id @default(cuid())
+  professionalId     String
+  month              Int
+  year               Int
+  grossAmountCLP     Int
+  centerShareCLP     Int
+  professionalShareCLP Int
+  status             PayoutStatus  @default(OPEN)
+  professional       User          @relation(fields: [professionalId], references: [id])
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@unique([professionalId, month, year])
+}
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  to          String
+  subject     String
+  body        String
+  kind        String
+  relatedId   String?
+  createdAt   DateTime @default(now())
 }
