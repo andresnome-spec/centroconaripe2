@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  SECRETARIA
+  PROFESIONAL_CENTRO
+  ARRENDATARIO_BOX
+}
+
+enum BookingMode {
+  PRESENCIAL
+  ONLINE
+}
+
+enum AppointmentStatus {
+  CONFIRMED
+  PENDING
+  CANCELLED
+  COMPLETED
+}
+
+model User {
+  id             String         @id @default(cuid())
+  name           String
+  email          String         @unique
+  role           Role
+  phone          String?
+  canSeeDayList  Boolean        @default(false)
+  services       Service[]
+  boxRentals     BoxRental[]
+  appointments   Appointment[]  @relation("ProfessionalAppointments")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Box {
+  id            String         @id @default(cuid())
+  name          String
+  description   String?
+  isActive      Boolean        @default(true)
+  rentals       BoxRental[]
+  appointments  Appointment[]
+}
+
+model BoxRental {
+  id          String   @id @default(cuid())
+  userId      String
+  boxId       String
+  weekday     Int
+  startTime   String
+  endTime     String
+  notes       String?
+  user        User     @relation(fields: [userId], references: [id])
+  box         Box      @relation(fields: [boxId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([boxId, weekday])
+}
+
+model Service {
+  id              String   @id @default(cuid())
+  name            String
+  durationMin     Int
+  priceCLP        Int
+  isOnlineEnabled Boolean  @default(true)
+  isPresential    Boolean  @default(true)
+  isPublicBooking Boolean  @default(true)
+  professionalId  String
+  professional    User     @relation(fields: [professionalId], references: [id])
+  appointments    Appointment[]
+}
+
+model Patient {
+  id            String         @id @default(cuid())
+  fullName      String
+  email         String?
+  phone         String
+  notes         String?
+  appointments  Appointment[]
+  createdAt     DateTime       @default(now())
+
+  @@index([phone])
+}
+
+model Appointment {
+  id              String             @id @default(cuid())
+  patientId       String
+  professionalId  String
+  serviceId       String
+  boxId           String?
+  bookingMode     BookingMode
+  startAt         DateTime
+  endAt           DateTime
+  status          AppointmentStatus  @default(CONFIRMED)
+  notes           String?
+  patient         Patient            @relation(fields: [patientId], references: [id])
+  professional    User               @relation("ProfessionalAppointments", fields: [professionalId], references: [id])
+  service         Service            @relation(fields: [serviceId], references: [id])
+  box             Box?               @relation(fields: [boxId], references: [id])
+  createdAt       DateTime           @default(now())
+
+  @@index([professionalId, startAt])
+  @@index([boxId, startAt])
+  @@index([startAt, status])
+}
